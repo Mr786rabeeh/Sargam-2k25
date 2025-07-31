@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sargam2k25 Fest Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Slate & Amber -->
+    <!-- Application Structure Plan: A task-oriented Single Page Application (SPA) design. The initial view is a public-facing Home Leaderboard (Sargam2k25 Live Standings). Login redirects to respective Admin or Group Leader Dashboards. The UI is divided into distinct 'views' or 'pages' that are shown/hidden with JavaScript. This structure cleanly separates distinct workflows. A centralized navigation system within each dashboard allows users to switch between tasks. The 'Publish Results' section provides fine-grained control for admins to curate the public leaderboard, enhancing competitive balance. A new 'Group Performance by Section' chart is added to the public and internal leaderboards for deeper sectional analysis. -->
+    <!-- Visualization & Content Choices:
+        - Goal: Summarize Public Results -> Viz: Bar Chart (Chart.js) for Overall Group Standings, Sorted HTML Tables for Toppers. Interaction: Accessible on homepage. Justification: Visual, immediately understandable overview for all participants.
+        - Goal: Compare Group Performance by Section -> Viz: Bar Chart (Chart.js) with Section Filter -> Interaction: Users select a section from a dropdown, and the chart updates to show group scores within that section. Justification: Provides crucial granular insights into intra-section competition.
+        - Goal: Display Toppers -> Viz: Sorted HTML Tables -> Interaction: Tables are dynamically generated and sorted to show rankings for institution-wide and section-wise toppers. Filters allow viewing toppers per section. Justification: Provides precise, detailed, and easy-to-read ranked lists.
+        - Goal: Streamline Result Entry -> Viz: Interactive Form with Dynamic Lookups and Live Point Calculation -> Interaction: Selecting a program code auto-displays program name. Input fields for 1st, 2nd, 3rd place (student ID, grade) allow consolidated entry per program. Crucially, as Student ID and Grade are entered, the system dynamically calculates and displays the points awarded for that specific result. Justification: Simplifies entry for multi-winner programs, reduces errors, and provides immediate feedback on point allocation.
+        - Goal: Granular Result Publication -> Viz: Checkbox List with Preview -> Interaction: Admins select specific programs for publication, with a 'Preview' button to see how scores would change, before 'Publishing' them. Justification: Allows strategic release of results to maintain engagement and balance.
+        - Goal: Organize Information -> Viz: Tabbed Navigation & Stat Cards -> Interaction: Users click tabs to switch between management views. Stat cards provide at-a- glance summaries. Justification: Organizes complex tools into logical sections.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .content-view { display: none; }
+        .content-view.active { display: block; }
+        .chart-container { position: relative; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; height: 400px; max-height: 50vh; }
+        @media (max-width: 768px) { .chart-container { height: 300px; } }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            width: 90%;
+            max-width: 800px;
+            transform: scale(0.95);
+            transition: transform 0.3s;
+        }
+        .modal-overlay.active .modal-content {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="app" class="min-h-screen">
+
+        <!-- Home Page / Public Leaderboard View -->
+        <div id="home-leaderboard-view" class="view active">
+            <header class="sticky top-0 z-30 w-full px-4 py-3 bg-white/80 backdrop-blur-sm shadow-sm">
+                <div class="flex items-center justify-between max-w-7xl mx-auto">
+                    <h1 class="text-2xl font-bold text-slate-800">Sargam2k25 Fest Leaderboard - Home</h1>
+                    <button id="home-login-btn" class="px-4 py-2 text-sm font-medium text-white bg-slate-600 rounded-lg hover:bg-slate-700">Admin/Leader Login</button>
+                </div>
+            </header>
+            <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                <h2 class="text-3xl font-bold mb-6">Live Standings</h2>
+                <p id="public-publish-status" class="text-center mb-6 p-3 rounded-lg bg-amber-100 text-amber-800 font-semibold">Results are not yet published. The leaderboard will update once the admin publishes program results.</p>
+                
+                <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                    <h3 class="text-xl font-bold mb-4">Overall Group Standings</h3>
+                    <div class="chart-container">
+                        <canvas id="public-group-points-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                    <h3 class="text-xl font-bold mb-4">Group Performance by Section</h3>
+                    <div class="flex items-center space-x-4 mb-4">
+                        <label for="public-section-group-filter" class="font-semibold">Select Section:</label>
+                        <select id="public-section-group-filter" class="p-2 border rounded-lg flex-grow"></select>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="public-section-group-points-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="bg-white p-6 rounded-xl shadow-md">
+                        <h3 class="text-xl font-bold mb-4">Institution Toppers</h3>
+                        <div id="public-institution-toppers"></div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-md">
+                        <h3 class="text-xl font-bold mb-4">Section Toppers</h3>
+                        <div class="flex space-x-2 mb-4 border-b pb-2" id="public-section-filter-buttons">
+                            <button class="section-filter-btn px-3 py-1 text-sm rounded-md bg-slate-700 text-white" data-section="all">All</button>
+                        </div>
+                        <div id="public-section-toppers"></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Login View (Hidden by default, shown from home-leaderboard-view) -->
+        <div id="login-view" class="view">
+            <div class="flex items-center justify-center min-h-screen bg-slate-100">
+                <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-lg">
+                    <div>
+                        <h2 class="text-3xl font-bold text-center text-slate-900">Sargam2k25 Management Portal</h2>
+                        <p class="mt-2 text-center text-slate-600">Please select your role to continue</p>
+                    </div>
+                    <div class="space-y-4">
+                        <button id="admin-login-btn" class="w-full px-4 py-3 font-semibold text-white transition-transform transform bg-slate-700 rounded-lg hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 active:scale-95">
+                            Login as Administrator
+                        </button>
+                        <div class="border-t pt-4">
+                            <p class="text-center text-slate-600 mb-2">Or login as a Group Leader:</p>
+                            <div id="leader-login-buttons" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <!-- Leader buttons will be populated here -->
+                            </div>
+                        </div>
+                         <button id="login-back-to-home-btn" class="w-full mt-4 px-4 py-3 font-semibold text-slate-700 transition-colors bg-slate-200 rounded-lg hover:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">
+                            Back to Home Leaderboard
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main App Container (for logged-in users) -->
+        <div id="main-app-view" class="view">
+            <header class="sticky top-0 z-30 w-full px-4 py-3 bg-white/80 backdrop-blur-sm shadow-sm">
+                <div class="flex items-center justify-between max-w-7xl mx-auto">
+                    <h1 class="text-2xl font-bold text-slate-800">Sargam2k25 Dashboard</h1>
+                    <div class="flex items-center space-x-4">
+                        <span id="user-role-display" class="font-semibold text-amber-700"></span>
+                        <button id="logout-btn" class="px-4 py-2 text-sm font-medium text-white bg-slate-600 rounded-lg hover:bg-slate-700">Logout</button>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="flex">
+                <!-- Sidebar Navigation -->
+                <nav id="sidebar" class="w-64 p-4 bg-white border-r border-slate-200 h-screen sticky top-[68px]">
+                    <ul id="admin-nav" class="space-y-2">
+                        <li><a href="#dashboard" class="nav-link block px-4 py-2 rounded-lg bg-slate-100 text-slate-800 font-semibold">Dashboard</a></li>
+                        <li><a href="#manage-students" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Manage Students</a></li>
+                        <li><a href="#manage-programs" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Manage Programs</a></li>
+                        <li><a href="#enter-results" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Enter Results</a></li>
+                        <li><a href="#publish-results" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Publish Results</a></li>
+                        <li><a href="#leaderboard" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Leaderboard (Admin)</a></li>
+                    </ul>
+                    <ul id="leader-nav" class="space-y-2">
+                        <li><a href="#leader-dashboard" class="nav-link block px-4 py-2 rounded-lg bg-slate-100 text-slate-800 font-semibold">Dashboard</a></li>
+                        <li><a href="#register-participants" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Register Participants</a></li>
+                         <li><a href="#leaderboard" class="nav-link block px-4 py-2 rounded-lg hover:bg-slate-100">Leaderboard (Group)</a></li>
+                    </ul>
+                </nav>
+
+                <!-- Main Content Area -->
+                <main class="flex-1 p-6 lg:p-8 bg-slate-50">
+                    
+                    <!-- Admin: Dashboard View -->
+                    <div id="dashboard-content" class="content-view active">
+                        <h2 class="text-3xl font-bold mb-6">Admin Dashboard</h2>
+                        <p class="mb-6 text-slate-600">This is your central hub for managing the Sargam2k25 student fest. Use the sidebar to navigate through various administrative tasks.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                            <div class="p-6 bg-white rounded-xl shadow-md"><p class="text-sm text-slate-500">Total Participants</p><p id="total-participants-stat" class="text-3xl font-bold"></p></div>
+                            <div class="p-6 bg-white rounded-xl shadow-md"><p class="text-sm text-slate-500">Total Programs</p><p id="total-programs-stat" class="text-3xl font-bold"></p></div>
+                            <div class="p-6 bg-white rounded-xl shadow-md"><p class="text-sm text-slate-500">Registrations</p><p id="total-registrations-stat" class="text-3xl font-bold"></p></div>
+                            <div class="p-6 bg-white rounded-xl shadow-md"><p id="results-entered-stat" class="text-3xl font-bold"></p></div>
+                        </div>
+                        <div class="p-6 bg-white rounded-xl shadow-md">
+                            <h3 class="text-xl font-bold mb-4">Quick Actions</h3>
+                            <div class="flex space-x-4">
+                                <button onclick="app.switchSubView('publish-results')" class="px-5 py-3 font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700">Go to Publish Results</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Admin: Manage Students View -->
+                    <div id="manage-students-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Manage Students</h2>
+                        <p class="mb-6 text-slate-600">Add new students to the system and view the complete list of registered participants. Ensure all details are accurate for proper tracking and result management.</p>
+                        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                            <h3 class="text-xl font-bold mb-4">Add New Student</h3>
+                            <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input type="text" id="student-id-input" placeholder="Student ID (e.g., 101)" class="p-2 border rounded-lg" required>
+                                <input type="text" id="student-name-input" placeholder="Full Name" class="p-2 border rounded-lg" required>
+                                <input type="text" id="student-class-input" placeholder="Class (e.g., 8A)" class="p-2 border rounded-lg" required>
+                                <select id="student-section-input" class="p-2 border rounded-lg" required></select>
+                                <select id="student-group-input" class="p-2 border rounded-lg" required></select>
+                                <div>
+                                    <label for="student-photo-input" class="block text-sm font-medium text-slate-700 mb-1">Student Photo (Optional)</label>
+                                    <input type="file" id="student-photo-input" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept="image/*">
+                                </div>
+                                <button type="submit" class="md:col-span-2 p-2 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800">Add Student</button>
+                            </form>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                             <h3 class="text-xl font-bold mb-4">Student List</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left">
+                                    <thead><tr class="border-b"><th class="p-2">Photo</th><th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2">Class</th><th class="p-2">Section</th><th class="p-2">Group</th></tr></thead>
+                                    <tbody id="students-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin: Manage Programs View -->
+                    <div id="manage-programs-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Manage Programs</h2>
+                        <p class="mb-6 text-slate-600">Define all the programs and events for the Sargam2k25 fest here. Each program needs a unique code, name, type (Individual/Group), and its relevant section.</p>
+                        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                            <h3 class="text-xl font-bold mb-4">Add New Program</h3>
+                            <form id="add-program-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input type="text" id="program-code-input" placeholder="Program Code (e.g., P01)" class="p-2 border rounded-lg" required>
+                                <input type="text" id="program-name-input" placeholder="Program Name" class="p-2 border rounded-lg" required>
+                                <select id="program-section-input" class="p-2 border rounded-lg" required></select>
+                                <select id="program-type-input" class="p-2 border rounded-lg" required>
+                                    <option value="">Select Type</option>
+                                    <option value="Individual">Individual</option>
+                                    <option value="Group">Group</option>
+                                </select>
+                                <button type="submit" class="md:col-span-1 p-2 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800">Add Program</button>
+                            </form>
+                            <div class="mt-4 border-t pt-4">
+                                <h4 class="text-lg font-bold mb-2">Generate Program Description ✨</h4>
+                                <textarea id="generated-program-description" class="w-full p-2 border rounded-lg text-slate-600 h-24" placeholder="Generated description will appear here..." readonly></textarea>
+                                <button id="generate-program-description-btn" class="mt-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-semibold">Generate Description ✨</button>
+                                <div id="program-description-loading" class="mt-2 text-amber-700 hidden">Generating...</div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                            <h3 class="text-xl font-bold mb-4">Program List</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left">
+                                    <thead><tr class="border-b"><th class="p-2">Code</th><th class="p-2">Name</th><th class="p-2">Section</th><th class="p-2">Type</th><th class="p-2">Description</th><th class="p-2">Actions</th></tr></thead>
+                                    <tbody id="programs-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin: Enter Results View -->
+                    <div id="enter-results-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Enter Results</h2>
+                        <p class="mb-6 text-slate-600">Input the results for each program here. First, select the program, then assign the students who achieved 1st, 2nd, and 3rd positions along with their grades. Watch the points update live!</p>
+                        <div class="bg-white p-6 rounded-xl shadow-md">
+                            <form id="add-result-form" class="space-y-4">
+                                <div>
+                                    <label class="font-semibold">Select Program</label>
+                                    <select id="result-program-select" class="w-full p-2 border rounded-lg mt-1" required>
+                                        <option value="">Select a Program</option>
+                                    </select>
+                                    <!-- Program Name Display Box -->
+                                    <div id="result-program-display-name" class="p-2 border rounded-lg bg-slate-100 font-semibold text-slate-800 h-10 flex items-center mt-2"></div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <!-- 1st Place -->
+                                    <div class="bg-slate-50 p-4 rounded-lg border">
+                                        <label class="font-semibold text-amber-700">1st Place</label>
+                                        <input type="text" placeholder="Student ID" class="w-full p-2 border rounded-lg mt-1 result-student-id" data-position="1">
+                                        <p class="text-sm text-slate-500 h-5 mt-1 result-student-name" data-position="1"></p>
+                                        <select class="w-full p-2 border rounded-lg mt-1 result-grade" data-position="1">
+                                            <option value="">Select Grade</option>
+                                            <option value="A">A Grade</option>
+                                            <option value="B">B Grade</option>
+                                            <option value="C">C Grade</option>
+                                        </select>
+                                        <p class="text-xs text-slate-600 mt-2">Points for this entry: <span class="result-entry-points font-bold" data-position="1">0</span></p>
+                                    </div>
+                                    <!-- 2nd Place -->
+                                    <div class="bg-slate-50 p-4 rounded-lg border">
+                                        <label class="font-semibold text-slate-700">2nd Place</label>
+                                        <input type="text" placeholder="Student ID" class="w-full p-2 border rounded-lg mt-1 result-student-id" data-position="2">
+                                        <p class="text-sm text-slate-500 h-5 mt-1 result-student-name" data-position="2"></p>
+                                        <select class="w-full p-2 border rounded-lg mt-1 result-grade" data-position="2">
+                                            <option value="">Select Grade</option>
+                                            <option value="A">A Grade</option>
+                                            <option value="B">B Grade</option>
+                                            <option value="C">C Grade</option>
+                                        </select>
+                                        <p class="text-xs text-slate-600 mt-2">Points for this entry: <span class="result-entry-points font-bold" data-position="2">0</span></p>
+                                    </div>
+                                    <!-- 3rd Place -->
+                                    <div class="bg-slate-50 p-4 rounded-lg border">
+                                        <label class="font-semibold text-slate-700">3rd Place</label>
+                                        <input type="text" placeholder="Student ID" class="w-full p-2 border rounded-lg mt-1 result-student-id" data-position="3">
+                                        <p class="text-sm text-slate-500 h-5 mt-1 result-student-name" data-position="3"></p>
+                                        <select class="w-full p-2 border rounded-lg mt-1 result-grade" data-position="3">
+                                            <option value="">Select Grade</option>
+                                            <option value="A">A Grade</option>
+                                            <option value="B">B Grade</option>
+                                            <option value="C">C Grade</option>
+                                        </select>
+                                        <p class="text-xs text-slate-600 mt-2">Points for this entry: <span class="result-entry-points font-bold" data-position="3">0</span></p>
+                                    </div>
+                                </div>
+                                <button type="submit" class="px-5 py-3 font-semibold text-white bg-slate-700 rounded-lg hover:bg-slate-800">Save Program Results</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Admin: Publish Results View -->
+                    <div id="publish-results-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Publish Results</h2>
+                        <p class="mb-6 text-slate-600">Select which programs' results to publish on the public leaderboard. You can preview the standings before publishing to ensure fair and competitive results for all groups and sections in Sargam2k25.</p>
+                        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                            <h3 class="text-xl font-bold mb-4">Select Programs to Publish</h3>
+                            <div id="programs-to-publish-list" class="space-y-3 mb-6">
+                                <!-- Program checkboxes will be populated here -->
+                            </div>
+                            <div class="flex space-x-4">
+                                <button id="preview-published-scores-btn" class="px-5 py-3 font-semibold text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300">Preview Leaderboard</button>
+                                <button id="publish-selected-results-btn" class="px-5 py-3 font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700">Publish Selected Results</button>
+                            </div>
+                        </div>
+                        <div id="published-preview-area" class="bg-white p-6 rounded-xl shadow-md hidden">
+                            <h3 class="text-xl font-bold mb-4">Preview Leaderboard (Based on selected programs)</h3>
+                            <p class="text-slate-600 mb-4">Review the calculated scores below before officially publishing.</p>
+                            <div class="chart-container mb-6">
+                                <canvas id="preview-group-points-chart"></canvas>
+                            </div>
+                             <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                                <h3 class="text-xl font-bold mb-4">Group Performance by Section (Preview)</h3>
+                                <div class="flex items-center space-x-4 mb-4">
+                                    <label for="preview-section-group-filter" class="font-semibold">Select Section:</label>
+                                    <select id="preview-section-group-filter" class="p-2 border rounded-lg flex-grow"></select>
+                                </div>
+                                <div class="chart-container">
+                                    <canvas id="preview-section-group-points-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <div>
+                                    <h4 class="text-lg font-bold mb-3">Preview Institution Toppers</h4>
+                                    <div id="preview-institution-toppers"></div>
+                                </div>
+                                <div>
+                                    <h4 class="text-lg font-bold mb-3">Preview Section Toppers</h4>
+                                    <div id="preview-section-toppers"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Leader: Dashboard View -->
+                    <div id="leader-dashboard-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Group Leader Dashboard</h2>
+                        <p class="mb-6 text-slate-600">Welcome, Group Leader! This dashboard provides an overview for your group in Sargam2k25. Use the navigation to register participants and check the latest leaderboard standings.</p>
+                        <div class="p-6 bg-white rounded-xl shadow-md">
+                            <h3 id="leader-group-name" class="text-2xl font-bold mb-4"></h3>
+                            <p>As a group leader, you can register your students for various programs. Please ensure student IDs and program codes are correct.</p>
+                        </div>
+                    </div>
+
+                    <!-- Leader: Register Participants View -->
+                    <div id="register-participants-content" class="content-view">
+                         <h2 class="text-3xl font-bold mb-6">Register Participants</h2>
+                         <p class="mb-6 text-slate-600">Here you can register students from your group for available programs in Sargam2k25. Track the number of programs each student is registered for.</p>
+                         <div class="bg-white p-6 rounded-xl shadow-md">
+                            <form id="register-participant-form" class="space-y-4">
+                                <div>
+                                    <label class="font-semibold">Select Student (from your group)</label>
+                                    <select id="leader-student-select" class="w-full p-2 border rounded-lg mt-1"></select>
+                                    <p id="reg-student-details" class="text-sm text-slate-500 h-5 mt-1"></p>
+                                </div>
+                                <div>
+                                    <label class="font-semibold">Select Program</label>
+                                    <select id="leader-program-select" class="w-full p-2 border rounded-lg mt-1"></select>
+                                    <p id="reg-program-details" class="text-sm text-slate-500 h-5 mt-1"></p>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <button type="submit" class="px-5 py-3 font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700">Register for Program</button>
+                                    <p class="font-semibold">Programs Registered: <span id="student-program-count" class="text-xl text-slate-800">0</span></p>
+                                </div>
+                            </form>
+                         </div>
+                         <div class="bg-white p-6 rounded-xl shadow-md mt-8">
+                            <h3 class="text-xl font-bold mb-4">Current Registrations (Your Group)</h3>
+                            <div id="registrations-list" class="space-y-2"></div>
+                        </div>
+                    </div>
+
+                    <!-- Shared: Leaderboard View (for logged-in users) -->
+                    <div id="leaderboard-content" class="content-view">
+                        <h2 class="text-3xl font-bold mb-6">Sargam2k25 Leaderboard</h2>
+                        <p class="mb-6 text-slate-600">This leaderboard shows the current standings based on all *published* program results. Keep an eye on your group's performance!</p>
+                        <p id="logged-in-publish-status" class="text-center mb-6 p-3 rounded-lg bg-amber-100 text-amber-800 font-semibold">Results are not yet published. The leaderboard will update once the admin publishes program results.</p>
+                        
+                        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                            <h3 class="text-xl font-bold mb-4">Overall Group Standings</h3>
+                            <div class="chart-container">
+                                <canvas id="group-points-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                            <h3 class="text-xl font-bold mb-4">Group Performance by Section</h3>
+                            <div class="flex items-center space-x-4 mb-4">
+                                <label for="section-group-filter" class="font-semibold">Select Section:</label>
+                                <select id="section-group-filter" class="p-2 border rounded-lg flex-grow"></select>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="section-group-points-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-xl shadow-md">
+                                <h3 class="text-xl font-bold mb-4">Institution Toppers</h3>
+                                <div id="institution-toppers"></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-md">
+                                <h3 class="text-xl font-bold mb-4">Section Toppers</h3>
+                                <div class="flex space-x-2 mb-4 border-b pb-2" id="section-filter-buttons">
+                                    <button class="section-filter-btn px-3 py-1 text-sm rounded-md bg-slate-700 text-white" data-section="all">All</button>
+                                </div>
+                                <div id="section-toppers"></div>
+                            </div>
+                        </div>
+                        <div class="mt-8 border-t pt-8">
+                            <h3 class="text-xl font-bold mb-4">Leaderboard Insights ✨</h3>
+                            <button id="get-leaderboard-insights-btn" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 font-semibold">Get Leaderboard Insights ✨</button>
+                            <div id="leaderboard-insights-loading" class="mt-2 text-purple-700 hidden">Analyzing...</div>
+                            <p id="leaderboard-insights-display" class="mt-4 p-4 bg-slate-100 rounded-lg text-slate-700 whitespace-pre-wrap"></p>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+
+        <!-- Program Results Modal -->
+        <div id="program-results-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="modal-program-title" class="text-2xl font-bold">Program Results</h2>
+                    <button id="modal-close-btn" class="text-2xl font-bold">&times;</button>
+                </div>
+                <div id="modal-results-content" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Winner cards will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-xl transform translate-y-20 opacity-0 transition-all duration-300">
+            <p id="toast-message"></p>
+        </div>
+
+    </div>
+
+    <script>
+    const app = {
+        state: {
+            currentUser: null, // 'admin' or 'leader'
+            currentView: 'home-leaderboard-view', // Default to home page
+            currentSubView: 'dashboard', // Default for logged in users
+            leaderGroup: null, 
+        },
+        data: {
+            groups: ['Aqeeq', 'Yaqooth', 'Tawbaaz', 'Marjan', 'Firooz'],
+            sections: ['Sub Junior', 'General', 'Senior', 'Super Senior'],
+            points: {
+                '1': { 'A': 10, 'B': 8, 'C': 6 },
+                '2': { 'A': 7, 'B': 5, 'C': 3 },
+                '3': { 'A': 6, 'B': 4, 'C': 2 }
+            },
+            students: [],
+            programs: [], // Now includes 'type' field and potentially 'description'
+            registrations: [], // { studentId, programCode }
+            results: [], // { programCode, position, studentId, grade } -- flattened for easy lookup
+            publishedProgramCodes: [], // Array of program codes that are currently published
+        },
+        elements: {
+            views: document.querySelectorAll('.view'),
+            contentViews: document.querySelectorAll('.content-view'),
+            navLinks: document.querySelectorAll('.nav-link'),
+            toast: document.getElementById('toast'),
+            toastMessage: document.getElementById('toast-message'),
+            resultProgramSelect: null, 
+            resultProgramDisplayName: null,
+            modal: document.getElementById('program-results-modal'),
+            modalTitle: document.getElementById('modal-program-title'),
+            modalContent: document.getElementById('modal-results-content'),
+            modalCloseBtn: document.getElementById('modal-close-btn'),
+        },
+        charts: {
+            publicGroupChart: null,
+            publicSectionGroupChart: null,
+            loggedInGroupChart: null,
+            loggedInSectionGroupChart: null,
+            previewGroupChart: null,
+            previewSectionGroupChart: null,
+        },
+
+        init() {
+            // Assign global elements after DOM is fully loaded
+            this.elements.resultProgramSelect = document.getElementById('result-program-select');
+            this.elements.resultProgramDisplayName = document.getElementById('result-program-display-name');
+            
+            this.populateInitialData(); 
+            this.setupEventListeners(); 
+            this.switchView('home-leaderboard-view'); 
+        },
+
+        setupEventListeners() {
+            document.getElementById('home-login-btn').addEventListener('click', () => this.switchView('login-view'));
+            document.getElementById('login-back-to-home-btn').addEventListener('click', () => this.switchView('home-leaderboard-view'));
+            document.getElementById('admin-login-btn').addEventListener('click', () => this.login('admin'));
+            
+            document.getElementById('leader-login-buttons').addEventListener('click', (e) => {
+                if (e.target.matches('.leader-login-btn')) {
+                    this.login('leader', e.target.dataset.group);
+                }
+            });
+
+            document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+
+            this.elements.navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const subView = e.target.getAttribute('href').substring(1);
+                    this.switchSubView(subView);
+                });
+            });
+            
+            document.getElementById('add-student-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.addStudent();
+            });
+            
+            document.getElementById('add-program-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.addProgram();
+            });
+            
+            document.getElementById('generate-program-description-btn').addEventListener('click', () => this.generateProgramDescription());
+            document.getElementById('add-result-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.saveProgramResults();
+            });
+            
+            if (this.elements.resultProgramSelect) {
+                this.elements.resultProgramSelect.addEventListener('change', (e) => this.loadProgramResults(e.target.value));
+            }
+
+            document.querySelectorAll('.result-student-id').forEach(input => {
+                input.addEventListener('input', (e) => this.updateResultStudentName(e.target.value, e.target.dataset.position));
+                input.addEventListener('input', () => this.updateResultEntryPoints());
+            });
+            document.querySelectorAll('.result-grade').forEach(select => {
+                select.addEventListener('change', () => this.updateResultEntryPoints());
+            });
+
+            document.getElementById('preview-published-scores-btn').addEventListener('click', () => this.previewPublishedScores());
+            document.getElementById('publish-selected-results-btn').addEventListener('click', () => this.publishSelectedResults());
+            document.getElementById('register-participant-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.registerParticipant();
+            });
+
+            document.getElementById('leader-student-select').addEventListener('change', (e) => this.updateRegistrationStudentDetails(e.target.value));
+            document.getElementById('leader-program-select').addEventListener('change', (e) => this.updateRegistrationProgramDetails(e.target.value));
+
+            document.body.addEventListener('click', (e) => {
+                if (e.target.classList.contains('section-filter-btn')) {
+                    e.preventDefault();
+                    const btn = e.target;
+                    const prefix = btn.closest('#public-section-filter-buttons') ? 'public-' : (btn.closest('#section-filter-buttons') ? '' : 'preview-'); 
+                    
+                    this.renderSectionToppers(btn.dataset.section, prefix, this.data.publishedProgramCodes);
+                    
+                    const parentContainer = btn.parentElement;
+                    if (parentContainer) {
+                        parentContainer.querySelectorAll('.section-filter-btn').forEach(b => {
+                            if (b) b.classList.remove('bg-slate-700', 'text-white');
+                            if (b) b.classList.add('bg-slate-200');
+                        });
+                        btn.classList.remove('bg-slate-200');
+                        btn.classList.add('bg-slate-700', 'text-white');
+                    }
+                }
+                if (e.target.matches('.view-results-btn')) {
+                    this.showProgramResults(e.target.dataset.programCode);
+                }
+            });
+
+            document.getElementById('public-section-group-filter').addEventListener('change', (e) => {
+                this.renderSectionGroupPointsChart('public-section-group-points-chart', e.target.value, this.data.publishedProgramCodes);
+            });
+
+            document.getElementById('section-group-filter').addEventListener('change', (e) => {
+                this.renderSectionGroupPointsChart('section-group-points-chart', e.target.value, this.data.publishedProgramCodes);
+            });
+            
+            document.getElementById('preview-section-group-filter').addEventListener('change', (e) => {
+                const programsToConsider = this.getCheckedProgramsForPublication();
+                this.renderSectionGroupPointsChart('preview-section-group-points-chart', e.target.value, programsToConsider);
+            });
+
+            document.getElementById('get-leaderboard-insights-btn').addEventListener('click', () => this.getLeaderboardInsights());
+            
+            // Modal close listeners
+            this.elements.modalCloseBtn.addEventListener('click', () => this.hideProgramResults());
+            this.elements.modal.addEventListener('click', (e) => {
+                if (e.target === this.elements.modal) {
+                    this.hideProgramResults();
+                }
+            });
+        },
+
+        login(role, group = null) {
+            this.state.currentUser = role;
+            if (role === 'leader') {
+                this.state.leaderGroup = group;
+            }
+            const userRoleDisplay = document.getElementById('user-role-display');
+            if (userRoleDisplay) userRoleDisplay.textContent = role === 'admin' ? 'Administrator' : `Group Leader (${this.state.leaderGroup})`;
+            
+            document.getElementById('admin-nav').style.display = role === 'admin' ? 'block' : 'none';
+            document.getElementById('leader-nav').style.display = role === 'leader' ? 'block' : 'none';
+            
+            if (role === 'admin') {
+                this.switchSubView('dashboard');
+            } else {
+                this.switchSubView('leader-dashboard');
+            }
+            this.switchView('main-app-view');
+        },
+
+        logout() {
+            this.state.currentUser = null;
+            this.state.leaderGroup = null;
+            this.switchView('home-leaderboard-view');
+        },
+
+        switchView(viewId) {
+            this.state.currentView = viewId;
+            this.elements.views.forEach(v => v.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+
+            if(viewId === 'home-leaderboard-view') {
+                this.renderPublicLeaderboard();
+            } else if (viewId === 'login-view') {
+                this.renderLoginView();
+            } else if(viewId === 'main-app-view') {
+                this.renderCurrentView(); 
+            }
+        },
+
+        switchSubView(subViewId) {
+            this.state.currentSubView = subViewId;
+            this.elements.contentViews.forEach(v => v.classList.remove('active'));
+            document.getElementById(`${subViewId}-content`).classList.add('active');
+
+            this.elements.navLinks.forEach(link => {
+                link.classList.remove('bg-slate-100', 'text-slate-800', 'font-semibold');
+                if (link.getAttribute('href') === `#${subViewId}`) {
+                    link.classList.add('bg-slate-100', 'text-slate-800', 'font-semibold');
+                }
+            });
+            
+            this.renderCurrentView(); 
+        },
+        
+        renderCurrentView() {
+            switch(this.state.currentSubView) {
+                case 'dashboard': this.renderAdminDashboard(); break;
+                case 'manage-students': this.renderManageStudents(); break;
+                case 'manage-programs': this.renderManagePrograms(); break;
+                case 'enter-results': this.renderEnterResults(); break; 
+                case 'publish-results': this.renderPublishResults(); break;
+                case 'leaderboard': this.renderLeaderboard('logged-in-'); break;
+                case 'leader-dashboard': this.renderLeaderDashboard(); break;
+                case 'register-participants': this.renderRegisterParticipants(); break;
+                default: console.warn('WARN: Unknown sub-view:', this.state.currentSubView);
+            }
+        },
+
+        renderLoginView() {
+            const container = document.getElementById('leader-login-buttons');
+            container.innerHTML = '';
+            this.data.groups.forEach(group => {
+                container.innerHTML += `
+                    <button class="leader-login-btn w-full px-4 py-2 font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 active:scale-95" data-group="${group}">
+                        Login as ${group} Leader
+                    </button>
+                `;
+            });
+        },
+
+        renderAdminDashboard() {
+            document.getElementById('total-participants-stat').textContent = this.data.students.length;
+            document.getElementById('total-programs-stat').textContent = this.data.programs.length;
+            document.getElementById('total-registrations-stat').textContent = this.data.registrations.length;
+            document.getElementById('results-entered-stat').textContent = `${this.data.results.length} Results Entered`;
+        },
+        
+        renderLeaderDashboard() {
+            document.getElementById('leader-group-name').textContent = `Group: ${this.state.leaderGroup}`;
+        },
+
+        renderManageStudents() {
+            const tbody = document.getElementById('students-table-body');
+            tbody.innerHTML = '';
+            this.data.students.forEach(s => {
+                tbody.innerHTML += `
+                    <tr class="border-b hover:bg-slate-50">
+                        <td class="p-2"><img src="${s.photoUrl}" alt="${s.name}" class="w-10 h-10 rounded-full object-cover"></td>
+                        <td class="p-2 align-middle">${s.id}</td>
+                        <td class="p-2 align-middle">${s.name}</td>
+                        <td class="p-2 align-middle">${s.class}</td>
+                        <td class="p-2 align-middle">${s.section}</td>
+                        <td class="p-2 align-middle">${s.group}</td>
+                    </tr>`;
+            });
+        },
+        
+        renderManagePrograms() {
+            const tbody = document.getElementById('programs-table-body');
+            tbody.innerHTML = '';
+            this.data.programs.forEach(p => {
+                tbody.innerHTML += `
+                    <tr class="border-b hover:bg-slate-50">
+                        <td class="p-2">${p.code}</td>
+                        <td class="p-2">${p.name}</td>
+                        <td class="p-2">${p.section}</td>
+                        <td class="p-2">${p.type}</td>
+                        <td class="p-2 text-sm text-slate-600">${p.description || 'N/A'}</td>
+                        <td class="p-2">
+                            <button class="view-results-btn px-2 py-1 text-xs font-semibold text-white bg-slate-500 rounded-md hover:bg-slate-600" data-program-code="${p.code}">View Results</button>
+                        </td>
+                    </tr>`;
+            });
+            document.getElementById('generated-program-description').value = ''; 
+        },
+
+        renderEnterResults() {
+            const programSelect = this.elements.resultProgramSelect;
+            programSelect.innerHTML = '<option value="">Select a Program</option>';
+            this.data.programs.forEach(p => {
+                const option = document.createElement('option');
+                option.value = p.code;
+                option.textContent = `${p.code} - ${p.name} (${p.type})`;
+                programSelect.appendChild(option);
+            });
+            this.resetResultForm();
+        },
+
+        loadProgramResults(programCode) {
+            this.resetResultForm(false); 
+            const program = this.findProgram(programCode);
+            if (this.elements.resultProgramDisplayName) {
+                 this.elements.resultProgramDisplayName.textContent = program ? `${program.name} (${program.type})` : '';
+            }
+
+            if (program) {
+                const programResults = this.data.results.filter(r => r.programCode === programCode);
+                programResults.forEach(r => {
+                    const studentIdInput = document.querySelector(`.result-student-id[data-position="${r.position}"]`);
+                    const gradeSelect = document.querySelector(`.result-grade[data-position="${r.position}"]`);
+                    if (studentIdInput) {
+                        studentIdInput.value = r.studentId;
+                        this.updateResultStudentName(r.studentId, r.position); 
+                    }
+                    if (gradeSelect) gradeSelect.value = r.grade;
+                });
+            }
+            this.updateResultEntryPoints(); 
+        },
+
+        resetResultForm(clearProgramSelect = true) {
+            if (clearProgramSelect && this.elements.resultProgramSelect) this.elements.resultProgramSelect.value = ''; 
+            if (this.elements.resultProgramDisplayName) this.elements.resultProgramDisplayName.textContent = '';
+            document.querySelectorAll('.result-student-id').forEach(input => input.value = '');
+            document.querySelectorAll('.result-student-name').forEach(p => p.textContent = '');
+            document.querySelectorAll('.result-grade').forEach(select => select.value = '');
+            document.querySelectorAll('.result-entry-points').forEach(span => span.textContent = '0');
+        },
+
+        saveProgramResults() {
+            const programCode = this.elements.resultProgramSelect.value;
+            if (!programCode) {
+                this.showToast('Please select a program to save results.', 'error');
+                return;
+            }
+
+            this.data.results = this.data.results.filter(r => r.programCode !== programCode);
+            let resultsSavedCount = 0;
+
+            for (let i = 1; i <= 3; i++) {
+                const studentId = document.querySelector(`.result-student-id[data-position="${i}"]`).value.trim();
+                const grade = document.querySelector(`.result-grade[data-position="${i}"]`).value;
+
+                if (studentId && grade) {
+                    if (!this.findStudent(studentId)) {
+                        this.showToast(`Student ID ${studentId} for position ${i} not found.`, 'error');
+                        continue;
+                    }
+                    this.data.results.push({ programCode, position: String(i), studentId, grade });
+                    resultsSavedCount++;
+                } else if (studentId || grade) {
+                    this.showToast(`Partial entry for position ${i} ignored.`, 'warning');
+                }
+            }
+            if (resultsSavedCount > 0) {
+                this.showToast(`Results for ${this.findProgram(programCode)?.name || programCode} saved.`, 'success');
+            } else {
+                this.showToast('No valid results entered for this program.', 'info');
+            }
+            this.renderAdminDashboard();
+            this.resetResultForm();
+        },
+
+        updateResultEntryPoints() {
+            for (let i = 1; i <= 3; i++) {
+                const grade = document.querySelector(`.result-grade[data-position="${i}"]`).value;
+                const pointsSpan = document.querySelector(`.result-entry-points[data-position="${i}"]`);
+                let calculatedPoints = this.data.points[String(i)]?.[grade] || 0;
+                pointsSpan.textContent = calculatedPoints;
+            }
+        },
+
+        renderPublishResults() {
+            const listContainer = document.getElementById('programs-to-publish-list');
+            listContainer.innerHTML = '';
+            
+            if (this.data.programs.length === 0) {
+                listContainer.innerHTML = '<p class="text-slate-500">No programs available.</p>';
+                return;
+            }
+
+            this.data.programs.forEach(p => {
+                const hasResults = this.data.results.some(r => r.programCode === p.code);
+                const isPublished = this.data.publishedProgramCodes.includes(p.code);
+                listContainer.innerHTML += `
+                    <div class="flex items-center justify-between p-2 bg-slate-100 rounded-lg">
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="publish-program-${p.code}" value="${p.code}" class="form-checkbox h-4 w-4 text-amber-600 rounded" ${isPublished ? 'checked' : ''} ${!hasResults ? 'disabled' : ''}>
+                            <label for="publish-program-${p.code}" class="${!hasResults ? 'text-slate-400' : ''}">${p.name} (${p.code}) ${!hasResults ? '(No results entered)' : ''}</label>
+                        </div>
+                        <button class="view-results-btn px-2 py-1 text-xs font-semibold text-white bg-slate-500 rounded-md hover:bg-slate-600" data-program-code="${p.code}" ${!hasResults ? 'disabled' : ''}>View Results</button>
+                    </div>
+                `;
+            });
+            document.getElementById('published-preview-area').classList.add('hidden');
+        },
+
+        getCheckedProgramsForPublication() {
+            const checkboxes = document.querySelectorAll('#programs-to-publish-list input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        },
+
+        previewPublishedScores() {
+            const programsToConsider = this.getCheckedProgramsForPublication();
+            document.getElementById('published-preview-area').classList.remove('hidden');
+            
+            this.renderLeaderboard('preview-', programsToConsider);
+            this.populateSectionGroupFilter('preview-section-group-filter');
+            const previewSectionGroupFilter = document.getElementById('preview-section-group-filter');
+            if (previewSectionGroupFilter.options.length > 0) {
+                previewSectionGroupFilter.value = this.data.sections[0] || '';
+                this.renderSectionGroupPointsChart('preview-section-group-points-chart', previewSectionGroupFilter.value, programsToConsider);
+            }
+        },
+
+        publishSelectedResults() {
+            this.data.publishedProgramCodes = this.getCheckedProgramsForPublication();
+            this.showToast('Selected results published successfully!', 'success');
+            this.renderPublicLeaderboard();
+            if(this.state.currentUser) {
+                this.renderLeaderboard('logged-in-');
+            }
+            document.getElementById('published-preview-area').classList.add('hidden');
+        },
+
+        renderRegisterParticipants() {
+            const studentSelect = document.getElementById('leader-student-select');
+            const programSelect = document.getElementById('leader-program-select');
+            
+            studentSelect.innerHTML = '<option value="">Select a student</option>';
+            this.data.students
+                .filter(s => s.group === this.state.leaderGroup)
+                .forEach(s => {
+                    studentSelect.innerHTML += `<option value="${s.id}">${s.id} - ${s.name}</option>`;
+                });
+            
+            programSelect.innerHTML = '<option value="">Select a program</option>';
+            this.data.programs.forEach(p => {
+                programSelect.innerHTML += `<option value="${p.code}">${p.code} - ${p.name}</option>`;
+            });
+
+            this.updateRegistrationStudentDetails('');
+            this.updateRegistrationProgramDetails('');
+            this.renderRegistrationsList();
+        },
+
+        renderRegistrationsList() {
+            const list = document.getElementById('registrations-list');
+            list.innerHTML = '';
+            const groupRegistrations = this.data.registrations.filter(r => {
+                const student = this.findStudent(r.studentId);
+                return student && student.group === this.state.leaderGroup;
+            });
+
+            if (groupRegistrations.length === 0) {
+                list.innerHTML = '<p class="text-slate-500">No participants from your group have been registered yet.</p>';
+                return;
+            }
+
+            groupRegistrations.forEach(r => {
+                const student = this.findStudent(r.studentId);
+                const program = this.findProgram(r.programCode);
+                if(student && program) {
+                    list.innerHTML += `<div class="p-2 bg-slate-100 rounded-md">${student.name} registered for ${program.name}</div>`;
+                }
+            });
+        },
+        
+        renderLeaderboard(prefix = '', programsToConsider = this.data.publishedProgramCodes) {
+            const isPublished = programsToConsider.length > 0;
+            const publishStatusElement = document.getElementById(`${prefix}publish-status`);
+            if (publishStatusElement) publishStatusElement.style.display = isPublished ? 'none' : 'block';
+
+            this.renderGroupPointsChart(`${prefix}group-points-chart`, programsToConsider);
+            
+            const sectionGroupFilterElement = document.getElementById(`${prefix}section-group-filter`);
+            if(sectionGroupFilterElement) {
+                this.populateSectionGroupFilter(`${prefix}section-group-filter`);
+                const defaultSection = sectionGroupFilterElement.options.length > 0 ? sectionGroupFilterElement.options[0].value : this.data.sections[0] || ''; 
+                sectionGroupFilterElement.value = defaultSection;
+                this.renderSectionGroupPointsChart(`${prefix}section-group-points-chart`, defaultSection, programsToConsider);
+            }
+
+            this.renderInstitutionToppers(`${prefix}institution-toppers`, programsToConsider);
+            
+            const sectionFilterButtonsContainer = document.getElementById(`${prefix}section-filter-buttons`);
+            if(sectionFilterButtonsContainer) {
+                this.renderSectionFilterButtons(prefix);
+                this.renderSectionToppers('all', prefix, programsToConsider); 
+                const allBtn = document.querySelector(`#${prefix}section-filter-buttons .section-filter-btn[data-section="all"]`);
+                if (allBtn) {
+                    allBtn.classList.remove('bg-slate-200');
+                    allBtn.classList.add('bg-slate-700', 'text-white');
+                }
+            }
+
+            const insightsDisplay = document.getElementById(`leaderboard-insights-display`);
+            if (insightsDisplay) insightsDisplay.textContent = '';
+        },
+
+        renderPublicLeaderboard() {
+            this.renderLeaderboard('public-', this.data.publishedProgramCodes);
+            const publicAllBtn = document.querySelector('#public-section-filter-buttons .section-filter-btn[data-section="all"]');
+            if (publicAllBtn) publicAllBtn.click(); 
+            
+            const publicSectionGroupFilter = document.getElementById('public-section-group-filter');
+            if (publicSectionGroupFilter.options.length > 0) {
+                publicSectionGroupFilter.value = this.data.sections[0] || '';
+                this.renderSectionGroupPointsChart('public-section-group-points-chart', publicSectionGroupFilter.value, this.data.publishedProgramCodes);
+            }
+        },
+
+        calculateScores(programsToConsider) {
+            const studentPoints = {};
+            this.data.students.forEach(s => studentPoints[s.id] = 0);
+
+            const relevantResults = this.data.results.filter(r => programsToConsider.includes(r.programCode));
+
+            relevantResults.forEach(r => {
+                const points = this.data.points[r.position]?.[r.grade] || 0;
+                if(studentPoints[r.studentId] !== undefined) {
+                    studentPoints[r.studentId] += points;
+                }
+            });
+
+            const groupPoints = {};
+            this.data.groups.forEach(g => groupPoints[g] = 0);
+            this.data.students.forEach(s => {
+                if (groupPoints[s.group] !== undefined) {
+                    groupPoints[s.group] += studentPoints[s.id];
+                }
+            });
+            
+            return { studentPoints, groupPoints };
+        },
+
+        calculateSectionGroupPoints(section, programsToConsider) {
+            const { studentPoints } = this.calculateScores(programsToConsider);
+            const sectionGroupPoints = {};
+            this.data.groups.forEach(g => sectionGroupPoints[g] = 0);
+
+            this.data.students.forEach(s => {
+                if (s.section === section && sectionGroupPoints[s.group] !== undefined) {
+                    sectionGroupPoints[s.group] += studentPoints[s.id] || 0;
+                }
+            });
+            return sectionGroupPoints;
+        },
+        
+        renderGroupPointsChart(canvasId, programsToConsider) {
+            const { groupPoints } = this.calculateScores(programsToConsider);
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return; 
+
+            const chartCtx = ctx.getContext('2d');
+            
+            if (this.charts[canvasId] && this.charts[canvasId].destroy) {
+                this.charts[canvasId].destroy();
+            }
+
+            this.charts[canvasId] = new Chart(chartCtx, {
+                type: 'bar',
+                data: {
+                    labels: this.data.groups,
+                    datasets: [{
+                        label: 'Total Points',
+                        data: this.data.groups.map(g => groupPoints[g] || 0),
+                        backgroundColor: ['#334155', '#d97706', '#059669', '#2563eb', '#9333ea'],
+                        borderRadius: 8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        },
+
+        populateSectionGroupFilter(selectId) {
+            const selectElement = document.getElementById(selectId);
+            if (!selectElement) return;
+
+            selectElement.innerHTML = '';
+            this.data.sections.forEach(sec => {
+                selectElement.innerHTML += `<option value="${sec}">${sec}</option>`;
+            });
+        },
+
+        renderSectionGroupPointsChart(canvasId, section, programsToConsider) {
+            const sectionGroupPoints = this.calculateSectionGroupPoints(section, programsToConsider);
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+
+            const chartCtx = ctx.getContext('2d');
+
+            if (this.charts[canvasId] && this.charts[canvasId].destroy) {
+                this.charts[canvasId].destroy();
+            }
+
+            this.charts[canvasId] = new Chart(chartCtx, {
+                type: 'bar',
+                data: {
+                    labels: this.data.groups,
+                    datasets: [{
+                        label: `Points in ${section} Section`,
+                        data: this.data.groups.map(g => sectionGroupPoints[g] || 0),
+                        backgroundColor: ['#334155', '#d97706', '#059669', '#2563eb', '#9333ea'],
+                        borderRadius: 8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        },
+
+        renderInstitutionToppers(containerId, programsToConsider) {
+            const { studentPoints } = this.calculateScores(programsToConsider);
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            const toppers = Object.entries(studentPoints)
+                .sort(([,a],[,b]) => b - a)
+                .slice(0, 10);
+            
+            let html = '<div class="space-y-2">';
+            if (toppers.length === 0 || toppers[0][1] === 0) {
+                html += '<p class="text-slate-500">No toppers yet. Results may not be published.</p>';
+            } else {
+                toppers.forEach(([studentId, points], index) => {
+                    const student = this.findStudent(studentId);
+                    if(student && points > 0) {
+                        html += `<div class="flex justify-between items-center p-2 rounded-md ${index < 3 ? 'bg-amber-50' : 'bg-slate-50'}">
+                                    <div>
+                                        <span class="font-bold">${index + 1}. ${student.name}</span>
+                                        <span class="text-sm text-slate-500 ml-2">${student.group}</span>
+                                    </div>
+                                    <span class="font-bold text-lg text-amber-700">${points} pts</span>
+                                </div>`;
+                    }
+                });
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        },
+
+        renderSectionFilterButtons(prefix = '') {
+            const container = document.getElementById(`${prefix}section-filter-buttons`);
+            if (!container) return;
+
+            container.innerHTML = '<button class="section-filter-btn px-3 py-1 text-sm rounded-md bg-slate-700 text-white" data-section="all">All</button>';
+            this.data.sections.forEach(section => {
+                container.innerHTML += `<button class="section-filter-btn px-3 py-1 text-sm rounded-md bg-slate-200" data-section="${section}">${section}</button>`;
+            });
+        },
+
+        renderSectionToppers(section, prefix = '', programsToConsider = this.data.publishedProgramCodes) {
+            const { studentPoints } = this.calculateScores(programsToConsider);
+            const container = document.getElementById(`${prefix}section-toppers`);
+            if (!container) return;
+            
+            let toppers = Object.entries(studentPoints);
+
+            if (section !== 'all') {
+                toppers = toppers.filter(([studentId]) => {
+                    const student = this.findStudent(studentId);
+                    return student && student.section === section;
+                });
+            }
+            
+            toppers = toppers.sort(([,a],[,b]) => b - a).slice(0, 10);
+
+            let html = '<div class="space-y-2">';
+            if (toppers.length === 0 || toppers[0][1] === 0) {
+                html += '<p class="text-slate-500">No results for this section yet.</p>';
+            } else {
+                toppers.forEach(([studentId, points], index) => {
+                    const student = this.findStudent(studentId);
+                    if(student && points > 0) {
+                        html += `<div class="flex justify-between items-center p-2 rounded-md ${index < 3 ? 'bg-amber-50' : 'bg-slate-50'}">
+                                    <div>
+                                        <span class="font-bold">${index + 1}. ${student.name}</span>
+                                        <span class="text-sm text-slate-500 ml-2">${student.group}</span>
+                                    </div>
+                                    <span class="font-bold text-lg text-amber-700">${points} pts</span>
+                                </div>`;
+                    }
+                });
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        },
+
+        async addStudent() {
+            const id = document.getElementById('student-id-input').value.trim();
+            const name = document.getElementById('student-name-input').value.trim();
+            const s_class = document.getElementById('student-class-input').value.trim();
+            const section = document.getElementById('student-section-input').value;
+            const group = document.getElementById('student-group-input').value;
+            const photoInput = document.getElementById('student-photo-input');
+            const file = photoInput.files[0];
+
+            if (!id || !name || !s_class || !section || !group) {
+                this.showToast('All fields except photo are required.', 'error');
+                return;
+            }
+            if (this.findStudent(id)) {
+                this.showToast('Student with this ID already exists.', 'error');
+                return;
+            }
+            
+            const getPhotoUrl = () => {
+                return new Promise((resolve) => {
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result); // Base64 Data URL
+                        reader.readAsDataURL(file);
+                    } else {
+                        resolve(`https://placehold.co/150x150/E2E8F0/475569?text=${name.charAt(0)}`);
+                    }
+                });
+            };
+
+            const photoUrl = await getPhotoUrl();
+
+            this.data.students.push({ id, name, class: s_class, section, group, photoUrl });
+            this.renderManageStudents();
+            this.showToast('Student added successfully.', 'success');
+            document.getElementById('add-student-form').reset();
+        },
+        
+        addProgram() {
+            const code = document.getElementById('program-code-input').value.trim();
+            const name = document.getElementById('program-name-input').value.trim();
+            const section = document.getElementById('program-section-input').value;
+            const type = document.getElementById('program-type-input').value;
+            const description = document.getElementById('generated-program-description').value.trim();
+
+            if (!code || !name || !section || !type) {
+                this.showToast('Program Code, Name, Section, and Type are required.', 'error');
+                return;
+            }
+            if (this.findProgram(code)) {
+                this.showToast('Program with this code already exists.', 'error');
+                return;
+            }
+
+            this.data.programs.push({ code, name, section, type, description });
+            this.renderManagePrograms();
+            this.showToast('Program added successfully.', 'success');
+            document.getElementById('add-program-form').reset();
+            document.getElementById('generated-program-description').value = '';
+            this.renderEnterResults(); 
+            this.renderRegisterParticipants(); 
+        },
+
+        registerParticipant() {
+            const studentId = document.getElementById('leader-student-select').value;
+            const programCode = document.getElementById('leader-program-select').value;
+            
+            if(!studentId || !programCode) {
+                this.showToast('Please select a student and a program.', 'error');
+                return;
+            }
+
+            const alreadyRegistered = this.data.registrations.some(r => r.studentId === studentId && r.programCode === programCode);
+            if(alreadyRegistered) {
+                this.showToast('Student is already registered for this program.', 'error');
+                return;
+            }
+            
+            this.data.registrations.push({ studentId, programCode });
+            this.showToast('Registration successful.', 'success');
+            this.updateRegistrationStudentDetails(studentId);
+            this.renderRegistrationsList();
+        },
+
+        updateResultStudentName(id, position) {
+            const student = this.findStudent(id);
+            const studentNameElement = document.querySelector(`.result-student-name[data-position="${position}"]`);
+            if (studentNameElement) {
+                studentNameElement.textContent = student ? `${student.name} - ${student.group}` : 'Invalid ID';
+            }
+            this.updateResultEntryPoints();
+        },
+
+        updateRegistrationStudentDetails(studentId) {
+            const student = this.findStudent(studentId);
+            document.getElementById('reg-student-details').textContent = student ? `Class: ${student.class}, Section: ${student.section}` : '';
+            const count = this.data.registrations.filter(r => r.studentId === studentId).length;
+            document.getElementById('student-program-count').textContent = count;
+        },
+
+        updateRegistrationProgramDetails(programCode) {
+            const program = this.findProgram(programCode);
+            document.getElementById('reg-program-details').textContent = program ? `Section: ${program.section}, Type: ${program.type}` : '';
+        },
+
+        findStudent(id) {
+            return this.data.students.find(s => s.id === id);
+        },
+
+        findProgram(code) {
+            return this.data.programs.find(p => p.code === code);
+        },
+
+        showToast(message, type = 'success') {
+            const { toast, toastMessage } = this.elements;
+            toastMessage.textContent = message;
+            toast.classList.remove('bg-slate-800', 'bg-red-600', 'bg-yellow-600');
+            toast.classList.add(type === 'error' ? 'bg-red-600' : (type === 'warning' ? 'bg-yellow-600' : 'bg-slate-800'));
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+        },
+
+        showProgramResults(programCode) {
+            const program = this.findProgram(programCode);
+            if (!program) return;
+
+            this.elements.modalTitle.textContent = `Results for: ${program.name}`;
+            this.elements.modalContent.innerHTML = '';
+
+            const results = this.data.results.filter(r => r.programCode === programCode);
+            if (results.length === 0) {
+                this.elements.modalContent.innerHTML = '<p class="col-span-full text-center text-slate-500">No results have been entered for this program yet.</p>';
+            } else {
+                ['1', '2', '3'].forEach(pos => {
+                    const result = results.find(r => r.position === pos);
+                    let cardHtml = '';
+                    if (result) {
+                        const student = this.findStudent(result.studentId);
+                        const points = this.data.points[result.position]?.[result.grade] || 0;
+                        cardHtml = `
+                            <div class="text-center p-4 border rounded-lg shadow-sm ${pos === '1' ? 'bg-amber-50' : 'bg-slate-50'}">
+                                <img src="${student.photoUrl}" alt="${student.name}" class="w-24 h-24 rounded-full mx-auto mb-3 object-cover border-4 ${pos === '1' ? 'border-amber-400' : 'border-slate-300'}">
+                                <h3 class="font-bold text-lg">${pos === '1' ? '1st' : (pos === '2' ? '2nd' : '3rd')} Place</h3>
+                                <p class="font-semibold text-slate-800">${student.name}</p>
+                                <p class="text-sm text-slate-500">${student.group}</p>
+                                <p class="mt-2 text-xl font-bold text-amber-700">${points} Points</p>
+                                <p class="text-xs text-slate-400">(${result.grade} Grade)</p>
+                            </div>
+                        `;
+                    } else {
+                         cardHtml = `
+                            <div class="text-center p-4 border rounded-lg bg-slate-50 flex flex-col items-center justify-center min-h-[250px]">
+                                <h3 class="font-bold text-lg text-slate-400">${pos === '1' ? '1st' : (pos === '2' ? '2nd' : '3rd')} Place</h3>
+                                <p class="text-slate-400 mt-2">Not Awarded</p>
+                            </div>
+                        `;
+                    }
+                    this.elements.modalContent.innerHTML += cardHtml;
+                });
+            }
+            this.elements.modal.classList.add('active');
+        },
+
+        hideProgramResults() {
+            this.elements.modal.classList.remove('active');
+        },
+
+        // --- Gemini API Integration Functions ---
+
+        async generateProgramDescription() {
+            const nameInput = document.getElementById('program-name-input');
+            const sectionInput = document.getElementById('program-section-input');
+            const typeInput = document.getElementById('program-type-input');
+            const generatedDescriptionArea = document.getElementById('generated-program-description');
+            const loadingIndicator = document.getElementById('program-description-loading');
+
+            const programName = nameInput.value.trim();
+            const programSection = sectionInput.value;
+            const programType = typeInput.value;
+
+            if (!programName || !programSection || !programType) {
+                this.showToast('Please enter Program Name, Section, and Type first.', 'warning');
+                return;
+            }
+
+            loadingIndicator.classList.remove('hidden');
+            generatedDescriptionArea.value = 'Generating description...';
+
+            try {
+                const prompt = `Write a short, engaging, and creative description for a school fest program. Program Name: ${programName}, Section: ${programSection}, Type: ${programType}. Focus on making it appealing to students and highlighting what the program entails. Keep it concise, around 2-3 sentences.`;
+
+                let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiKey = ""; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                const result = await response.json();
+                
+                const description = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (description) {
+                    generatedDescriptionArea.value = description;
+                    this.showToast('Description generated!', 'success');
+                } else {
+                    throw new Error('No content in response.');
+                }
+            } catch (error) {
+                console.error('Error generating program description:', error);
+                generatedDescriptionArea.value = 'Error generating description.';
+                this.showToast(`Error: ${error.message}`, 'error');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        },
+
+        async getLeaderboardInsights() {
+            const insightsDisplay = document.getElementById('leaderboard-insights-display');
+            const loadingIndicator = document.getElementById('leaderboard-insights-loading');
+            
+            loadingIndicator.classList.remove('hidden');
+            insightsDisplay.textContent = 'Analyzing leaderboard data...';
+
+            try {
+                const programsToConsider = this.data.publishedProgramCodes;
+                if (programsToConsider.length === 0) {
+                    insightsDisplay.textContent = 'No published results to analyze yet.';
+                    this.showToast('No published results to analyze.', 'info');
+                    loadingIndicator.classList.add('hidden');
+                    return;
+                }
+
+                const { groupPoints, studentPoints } = this.calculateScores(programsToConsider);
+
+                let groupSummary = Object.entries(groupPoints)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([group, points]) => `${group}: ${points} points`)
+                    .join(', ');
+
+                const topStudents = Object.entries(studentPoints)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 5) 
+                    .map(([id, points]) => {
+                        const student = this.findStudent(id);
+                        return student ? `${student.name} (${student.group}, ${student.section}): ${points} points` : '';
+                    })
+                    .filter(Boolean).join('\n');
+
+                const prompt = `Analyze these Sargam2k25 fest results and provide a concise summary (3-5 sentences) for organizers, highlighting key performances and trends. Group Points: ${groupSummary}. Top Students:\n${topStudents || 'None yet.'}`;
+
+                let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiKey = ""; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                const result = await response.json();
+
+                const insights = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (insights) {
+                    insightsDisplay.textContent = insights;
+                    this.showToast('Insights generated!', 'success');
+                } else {
+                    throw new Error('No content in response.');
+                }
+            } catch (error) {
+                console.error('Error getting leaderboard insights:', error);
+                insightsDisplay.textContent = 'Error analyzing leaderboard data.';
+                this.showToast(`Error: ${error.message}`, 'error');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        },
+        
+        populateInitialData() {
+            this.data.students = [
+                { id: '1001', name: 'Aarav Sharma', class: '8A', section: 'General', group: 'Yaqooth', photoUrl: 'https://placehold.co/150x150/d97706/FFFFFF?text=AS' },
+                { id: '1002', name: 'Diya Patel', class: '8B', section: 'General', group: 'Aqeeq', photoUrl: 'https://placehold.co/150x150/334155/FFFFFF?text=DP' },
+                { id: '1003', name: 'Rohan Gupta', class: '9A', section: 'General', group: 'Tawbaaz', photoUrl: 'https://placehold.co/150x150/059669/FFFFFF?text=RG' },
+                { id: '1004', name: 'Priya Singh', class: '10C', section: 'Senior', group: 'Marjan', photoUrl: 'https://placehold.co/150x150/2563eb/FFFFFF?text=PS' },
+                { id: '1005', name: 'Vihaan Kumar', class: '11B', section: 'Senior', group: 'Firooz', photoUrl: 'https://placehold.co/150x150/9333ea/FFFFFF?text=VK' },
+                { id: '1006', name: 'Isha Reddy', class: '12A', section: 'Super Senior', group: 'Yaqooth', photoUrl: 'https://placehold.co/150x150/d97706/FFFFFF?text=IR' },
+                { id: '1007', name: 'Aryan Khan', class: '8A', section: 'General', group: 'Aqeeq', photoUrl: 'https://placehold.co/150x150/334155/FFFFFF?text=AK' },
+                { id: '1008', name: 'Sara Ali', class: '9B', section: 'General', group: 'Tawbaaz', photoUrl: 'https://placehold.co/150x150/059669/FFFFFF?text=SA' },
+                { id: '1009', name: 'Kabir Singh', class: '10B', section: 'Senior', group: 'Marjan', photoUrl: 'https://placehold.co/150x150/2563eb/FFFFFF?text=KS' },
+                { id: '1010', name: 'Shruti Desai', class: '11A', section: 'Senior', group: 'Firooz', photoUrl: 'https://placehold.co/150x150/9333ea/FFFFFF?text=SD' },
+                    { id: '1020', name: 'rabeeh Sharma', class: '8A', section: 'General', group: 'Yaqooth', photoUrl: 'https://placehold.co/150x150/d97706/FFFFFF?text=AS' },
+                { id: '1019', name: 'Diya fayis', class: '8B', section: 'General', group: 'Aqeeq', photoUrl: 'https://placehold.co/150x150/334155/FFFFFF?text=DP' },
+                { id: '1018', name: 'rahmani', class: '9A', section: 'General', group: 'Tawbaaz', photoUrl: 'https://placehold.co/150x150/059669/FFFFFF?text=RG' },
+                { id: '1017', name: 'afeef', class: '10C', section: 'Senior', group: 'Marjan', photoUrl: 'https://placehold.co/150x150/2563eb/FFFFFF?text=PS' },
+                { id: '1016', name: 'hasbin', class: '11B', section: 'Senior', group: 'Firooz', photoUrl: 'https://placehold.co/150x150/9333ea/FFFFFF?text=VK' },
+                { id: '1015', name: 'jinan', class: '12A', section: 'Super Senior', group: 'Yaqooth', photoUrl: 'https://placehold.co/150x150/d97706/FFFFFF?text=IR' },
+                { id: '1014', name: 'anas', class: '8A', section: 'General', group: 'Aqeeq', photoUrl: 'https://placehold.co/150x150/334155/FFFFFF?text=AK' },
+                { id: '1013', name: 'anees', class: '9B', section: 'General', group: 'Tawbaaz', photoUrl: 'https://placehold.co/150x150/059669/FFFFFF?text=SA' },
+                { id: '1012', name: 'Kabir', class: '10B', section: 'Senior', group: 'Marjan', photoUrl: 'https://placehold.co/150x150/2563eb/FFFFFF?text=KS' },
+                { id: '1011', name: 'rabeeh Desai', class: '11A', section: 'Senior', group: 'Firooz', photoUrl: '"C:\Users\DELL\Downloads\WhatsApp Image 2025-07-23 at 11.40.46_fe6b3bb9.jpg"' },
+            ];
+            
+            this.data.programs = [
+                { code: 'D01', name: 'Debate Competition', section: 'Senior', type: 'Individual', description: 'A spirited battle of wits where participants articulate their perspectives on compelling topics, honing their public speaking and critical thinking skills.' },
+                { code: 'S01', name: 'Solo Song', section: 'General', type: 'Individual', description: 'Showcase your vocal talent! Participants will perform a solo song of their choice, captivating the audience with their melodious voices.' },
+                { code: 'G01', name: 'Group Dance', section: 'Super Senior', type: 'Group', description: 'Teams perform synchronized dance routines, blending creativity, rhythm, and teamwork to deliver a spectacular performance.' },
+                { code: 'P01', name: 'Painting', section: 'General', type: 'Individual', description: 'Unleash your artistic flair! Students express their creativity on canvas using various colors and techniques.' },
+                { code: 'E01', name: 'Extempore Speech', section: 'Senior', type: 'Individual', description: 'Challenge your impromptu speaking skills! Participants will speak on a given topic with minimal preparation, showcasing their quick thinking and eloquence.' },
+                { code: 'Q01', name: 'Quiz Competition', section: 'General', type: 'Group', description: 'A thrilling battle of knowledge! Teams test their general awareness and academic prowess across various subjects in this exciting quiz.' },
+                { code: 'A01', name: 'Ad Mad Show', section: 'Super Senior', type: 'Group', description: 'Creativity meets comedy! Teams devise and perform hilarious advertisements on the spot, demonstrating their innovative thinking and wit.' },
+            ];
+
+            this.data.results.push(
+                { programCode: 'S01', position: '1', studentId: '1001', grade: 'A' }, 
+                { programCode: 'S01', position: '2', studentId: '1002', grade: 'B' }, 
+                { programCode: 'S01', position: '3', studentId: '1003', grade: 'C' }, 
+                { programCode: 'D01', position: '1', studentId: '1004', grade: 'A' }, 
+                { programCode: 'D01', position: '2', studentId: '1005', grade: 'A' }, 
+                { programCode: 'G01', position: '1', studentId: '1006', grade: 'A' }, 
+                { programCode: 'G01', position: '2', studentId: '1004', grade: 'B' }, 
+                { programCode: 'P01', position: '1', studentId: '1007', grade: 'A' }, 
+                { programCode: 'P01', position: '2', studentId: '1008', grade: 'A' }, 
+                { programCode: 'P01', position: '3', studentId: '1001', grade: 'C' }, 
+            );
+            
+            this.data.publishedProgramCodes = ['S01', 'D01', 'G01', 'P01'];
+
+            ['student-section-input', 'program-section-input'].forEach(id => {
+                const select = document.getElementById(id);
+                if(select) this.data.sections.forEach(s => select.innerHTML += `<option value="${s}">${s}</option>`);
+            });
+            const studentGroupSelect = document.getElementById('student-group-input');
+            if(studentGroupSelect) this.data.groups.forEach(g => studentGroupSelect.innerHTML += `<option value="${g}">${g}</option>`);
+            
+            this.populateSectionGroupFilter('public-section-group-filter');
+            this.populateSectionGroupFilter('section-group-filter');
+            this.populateSectionGroupFilter('preview-section-group-filter');
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>
